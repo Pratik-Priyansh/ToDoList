@@ -1,179 +1,143 @@
-const express=require("express");
-const bodyParser=require("body-parser");
-const mongoose=require("mongoose");
-const _=require("lodash");
+//jshint esversion:6
 
-const app=express();
+const express = require("express");
+const bodyParser = require("body-parser");
+const mongoose = require("mongoose");
 
-app.set('view engine','ejs');
+const app = express();
 
-app.use(bodyParser.urlencoded({extended:true}));
+app.set('view engine', 'ejs');
+
+app.use(bodyParser.urlencoded({extended: true}));
 app.use(express.static("public"));
 
-mongoose.connect("mongodb+srv://localhost:27017/todolistDB");
+main().catch(err => console.log(err));
 
-const itemsSchema={
-  name: String
-};
+async function main() {
+  await mongoose.connect('mongodb+srv://pratikpriyansh:pratik@gettingstarted.j92gmfu.mongodb.net/todolistDB');
 
-const Item=mongoose.model("Item",itemsSchema);
-
-const item1=new Item({
-  name: "Welcome to your friendly task logger!"
-});
-
-const item2=new Item({
-  name: "Press the + button to add a new task"
-});
-
-const item3=new Item({
-  name: "<-- hit this to mark the task as finished"
-});
-
-defaultItems=[item1,item2,item3];
-
-const listSchema={
-  name: String,
-  items:[itemsSchema]
+  // use `await mongoose.connect('mongodb://user:password@127.0.0.1:27017/test');` if your database has auth enabled
 }
 
-const List=mongoose.model("List",listSchema);
+const itemSchema = new mongoose.Schema({
+  name:String
+});
 
-app.listen(3000,function(){
-  console.log("Server is running.");
+const Item = mongoose.model("Item", itemSchema);
+
+const item1= new Item({
+  name: "Welecome to your todolist" 
+});
+
+const item2= new Item({
+  name: "Hit the + button to off a new item" 
+});
+
+const item3= new Item({
+  name: "Hit this to delete an item"
+});
+
+const defaultitems = [item1, item2, item3];
+
+const listSchema = new mongoose.Schema({
+  name: String,
+  items: [itemSchema]
 })
 
-app.get("/",function(req,res){
+const List = mongoose.model("List", listSchema);
 
-  let today=new Date();
+// Item.insertMany(defaultitems);
 
-  let options={
-    weekday: "long",
-    day: "numeric",
-    month: "long"
-  }
+app.get("/", function(req, res) {
 
-  let day=today.toLocaleDateString("en-IN",options);
-
-  Item.find({},function(err,foundItems){
-
-    if(foundItems.length===0)
-    {
-      Item.insertMany(defaultItems,function(err){
-        if(err)
-        {
-          console.log(err);
-        }
-        else
-        {
-          console.log("success");
-        }
-      })
-
+  Item.find({}).then((results)=>{
+    if(results.length===0){
+      Item.insertMany(defaultitems).then((ans)=>{
+        console.log("Successfully inserted");
+      }).catch((Err)=>{
+        console.log("Error");
+      });
       res.redirect("/");
     }
-
-    res.render("list",{
-      kindOfDay: day,
-      title: "General",
-      newListItem: foundItems
-    });
-
+    else{
+      res.render("list", {listTitle: "Today", newListItems: results});
+    }
+  }).catch((err)=>{
+    console.log("Error");
   });
+  
 
-})
+});
 
-app.get("/:parameter",function(req,res){
-
-  let today=new Date();
-
-  let options={
-    weekday: "long",
-    day: "numeric",
-    month: "long"
-  }
-
-  let day=today.toLocaleDateString("en-IN",options);
-
-  const listName=_.capitalize(req.params.parameter);
-
-  List.findOne({name: listName},function(err,foundList){
-    if(!err)
-    {
-      if(!foundList)
-      {
-        const list=new List({
-          name: listName,
-          items: defaultItems
-        })
-
-        list.save();
-
-        res.redirect("/"+listName);
-      }
-      else
-      {
-        res.render("list",{
-          kindOfDay: day,
-          title: foundList.name,
-          newListItem: foundList.items
-        });
-      }
+app.get("/:customListname", function(req,res){
+  const customListname =  req.params.customListname ;
+  
+  List.findOne({name: customListname}).then((results)=>{
+    if(!results){
+      const list = new List({
+        name : customListname,
+        items: defaultitems 
+      })
+      List.insertMany(list);
+      res.redirect("/"+customListname);
+    }
+    else{
+      res.render("list", {listTitle: results.name, newListItems: results.items} )
     }
   })
-
 })
 
-app.post("/",function(req,res){
+app.post("/", function(req, res){
 
-  const listName=_.capitalize(req.body.button);
-
-  const task=new Item({
-    name: req.body.newItem
+  const item = req.body.newItem;
+  const listName = req.body.list ;
+  const newitem = new Item({
+    name: item
   });
-
-  if(listName==="General")
-  {
-    task.save();
+  if(listName === "Today"){
+    Item.insertMany(newitem);
     res.redirect("/");
   }
-  else
-  {
-    List.findOne({name:listName},function(err,foundList){
-      foundList.items.push(task);
-      foundList.save();
+  else{
+    List.findOne({name: listName}).then((found)=>{
+      // found.items.push(item);
+      List.insertMany(newitem);
+      res.redirect("/"+ listName);
+    })
+  }
+  
+  
+});
+
+app.post("/delete", function(req,res){
+  const checkedId =  req.body.checkbox;
+  const listName = req.body.listName ;
+
+  if(listName==="Today"){
+    Item.findByIdAndRemove(checkedId).then((x)=>{
+      console.log("Removed");
+      res.redirect("/");
+    }).catch((err)=>{
+      console.log("Error");
+    })
+  }
+  else{
+    List.findOneAndUpdate({name: listName},{$pull: {items: {_id: checkedId}}}).then((found)=>{
       res.redirect("/"+listName);
     })
   }
 })
 
-app.post("/delete",function(req,res){
 
-  const del_item_id=req.body.checkbox;
-  const listName=_.capitalize(req.body.listName);
+app.get("/about", function(req, res){
+  res.render("about");
+});
 
-  if(listName==="General")
-  {
-    Item.findByIdAndRemove(del_item_id,function(err){
-      if(!err)
-      {
-        console.log("successful deletion");
-        res.redirect("/");
-      }
-    });
-  }
-  else
-  {
-    List.findOneAndUpdate(
-      {name: listName},
-      {$pull: {items: {_id: del_item_id}}},
-      function(err, foundList)
-      {
-        if(!err)
-        {
-          res.redirect("/"+listName);
-        }
-      }
-    )
-  }
-})
+let port = process.env.PORT;
+if (port == null || port == "") {
+  port = 3000;
+}
+
+app.listen(port , function() {
+  console.log("Server started on port 3000");
+});
